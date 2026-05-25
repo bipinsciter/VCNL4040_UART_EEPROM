@@ -46,6 +46,7 @@ extern "C" {
 #define RELAY_STAT  	GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_15)
 #define RELAY_TOGGLE	GPIO_WriteBit(GPIOA, GPIO_Pin_15, GPIO_ReadOutputDataBit(GPIOA, GPIO_Pin_15) ? Bit_RESET : Bit_SET);
 
+#define CAL_PIN_STAT  	GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_13)
 
 /* Exported macro *****************************************************************************************************/
 

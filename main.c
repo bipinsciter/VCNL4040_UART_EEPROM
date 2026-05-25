@@ -58,7 +58,13 @@
 
 /* Private typedef ****************************************************************************************************/
 #define AVG_SAMPLE 10
-#define RELAY_CONFIRM_CNT 5 
+#define RELAY_CONFIRM_ON_CNT 5
+#define RELAY_CONFIRM_OFF_CNT 5
+#define UART_DIS_TIME_SEC 600
+#define CALL_PRESS_TIME_SEC 5
+#define EMERGENCY_SENSE_SEC 15
+#define EMERGENCY_AUTO_RESTORE_SEC 120
+#define EMERGENCY_FORCE_RESTORE_SEC 5
 
 /* Private define *****************************************************************************************************/
 
@@ -66,101 +72,13 @@
 
 /* Private variables **************************************************************************************************/
 //uint8_t gu8_counter=0;
-uint16_t ps=0, final_ps=0, threshold=0;
+uint16_t ps=0, final_ps=0, last_final_ps=0, threshold=0;
 uint16_t raw_cnt[AVG_SAMPLE]={0};
 uint32_t gu32_temp=0,raw_cnt_avg=0;
-bool relayMsgOn=0,relayMsgOff=0;
-uint8_t raw_cnt_ind=0, i=0, RelayOnCnt=0, RelayOffCnt=0;
-uint8_t UartDisableTimer=60;
-
-/* Private functions **************************************************************************************************/
-
-
-//// VCNL4040 I2C address (7-bit)
-//#define VCNL4040_ADDR        0x60
-
-//// VCNL4040 registers
-//#define REG_ALS_DATA_L       0x0A
-//#define REG_ALS_DATA_H       0x0B
-//#define REG_PS_DATA_L        0x08
-//#define REG_PS_DATA_H        0x09
-
-//// I2C Initialization
-//void I2C1_Init(void) {
-//    RCC->APB1ENR |= RCC_APB1ENR_I2C1;
-//    RCC->AHBENR  |= RCC_AHBENR_GPIOA;
-
-//    // Configure PA0 = SCL, PA1 = SDA (AF Open-Drain)
-//    GPIOA->CRL &= ~((GPIO_CRL_MODE0 | GPIO_CRL_CNF0) |
-//                    (GPIO_CRL_MODE1 | GPIO_CRL_CNF1));
-//    GPIOA->CRL |= (GPIO_CRL_MODE0_0 | GPIO_CRL_CNF0_1); // AF OD
-//    GPIOA->CRL |= (GPIO_CRL_MODE1_0 | GPIO_CRL_CNF1_1); // AF OD
-
-//    RCC->APB1RSTR |= RCC_APB1RSTR_I2C1;
-//    RCC->APB1RSTR &= ~RCC_APB1RSTR_I2C1;
-
-//    // 400 kHz Fast mode (assume PCLK1 = 48MHz)
-//    I2C1->FSHR = 0x0000000B;
-//    I2C1->FSLR = 0x0000001D;
-
-//    I2C1->CR |= I2C_CR_PE;
-//}
-
-//// Low level I2C Write 
-//uint8_t I2C1_Write(uint8_t addr, uint8_t reg, uint8_t data) {
-//    I2C1->TAR = addr;
-//    I2C1->DR = reg;
-//    while (!(I2C1->SR & I2C_SR_TFE));
-//    I2C1->DR = data | I2C_DR_CMD_STOP;
-//	
-//    while (I2C1->SR & I2C_SR_ACTIVITY);
-//	
-//    if (I2C1->ISR & I2C_ISR_TX_ABRT) {
-//        I2C1->ICR |= I2C_ICR_TX_ABRT;
-//        return 1;
-//    }
-//    return 0;
-//}
-
-////Low level I2C Read 
-//uint8_t I2C1_Read(uint8_t addr, uint8_t reg, uint8_t *buf, uint8_t len) {
-//    I2C1->TAR = addr;
-//    I2C1->DR = reg;
-//    while (!(I2C1->SR & I2C_SR_TFE));
-
-//    for (int i = 0; i < len; i++) {
-//        if (i == (len - 1))
-//            I2C1->DR = I2C_DR_CMD_READ | I2C_DR_CMD_STOP;
-//        else
-//            I2C1->DR = I2C_DR_CMD_READ;
-
-//        while (!(I2C1->SR & I2C_SR_RFNE));
-//        buf[i] = I2C1->DR;
-//    }
-
-//    while (I2C1->SR & I2C_SR_ACTIVITY);
-//    if (I2C1->ISR & I2C_ISR_TX_ABRT) {
-//        I2C1->ICR |= I2C_ICR_TX_ABRT;
-//        return 1;
-//    }
-//    return 0;
-//}
-
-//// GPIO Init (PA2, PA3 as outputs) 
-//void GPIO_Init_Output(void) {
-//    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
-//    GPIOA->CRL &= ~((GPIO_CRL_MODE2 | GPIO_CRL_CNF2) |
-//                    (GPIO_CRL_MODE3 | GPIO_CRL_CNF3));
-//    GPIOA->CRL |= (GPIO_CRL_MODE2_0); // PA2 output push-pull
-//    GPIOA->CRL |= (GPIO_CRL_MODE3_0); // PA3 output push-pull
-//}
-
-//// Helper: Read 16-bit from VCNL4040 
-//uint16_t VCNL4040_ReadWord(uint8_t lowReg) {
-//    uint8_t buf[2];
-//    I2C1_Read(VCNL4040_ADDR, lowReg, buf, 2);
-//    return ((uint16_t)buf[1] << 8) | buf[0];
-//}
+bool relayMsgOn=0,relayMsgOff=0,emergencyTriggered=0;
+uint8_t raw_cnt_ind=0, i=0, RelayOnCnt=0, RelayOffCnt=0,CalPressTimer=CALL_PRESS_TIME_SEC,test_cnt=0;
+uint8_t emergencySenseTimer=0,emergencyRestoreTimer=0,emergencyForceRestoreTryTimer=0,emergencyForceRestoreTry=0;
+uint16_t UartDisableTimer=UART_DIS_TIME_SEC;
 
 
 #define FLASH_PAGE_NUMBER                   (16)
@@ -233,6 +151,8 @@ int main(void)
 	printf("Threshold=%d\n",threshold);
 	TIM1_Configure();
 	
+	last_final_ps = final_ps = VCNL4040_ReadWord(VCNL4040_PS_DATA);
+	
     while(1)
     {
 		//---------------------------------------------------------------------------------
@@ -249,13 +169,13 @@ int main(void)
 			}
 			final_ps = raw_cnt_avg/AVG_SAMPLE;
 			
-			//if(!RelayDeadTimer)
-			{
-				if(final_ps>threshold)  //Change count here for sensing        
+			if(abs(last_final_ps-final_ps)<10)
+			{	
+				if(final_ps>threshold)        
 				{
 					RelayOffCnt=0;
-					if(RelayOnCnt<RELAY_CONFIRM_CNT)RelayOnCnt++;
-					if(RelayOnCnt>=RELAY_CONFIRM_CNT)
+					if(RelayOnCnt<RELAY_CONFIRM_ON_CNT)RelayOnCnt++;
+					if(RelayOnCnt>=RELAY_CONFIRM_ON_CNT)
 					{
 						relayMsgOff=0;
 						if(!relayMsgOn)
@@ -264,22 +184,55 @@ int main(void)
 							if(UartDisableTimer) printf("RELAY ON\n");
 							relayMsgOn=1;
 						}
+						
+						if(emergencyForceRestoreTry!=2)
+						{
+							emergencyForceRestoreTry=2;
+							if(UartDisableTimer) printf("emergencyForceRestoreTry=%d\n",emergencyForceRestoreTry);
+						}
 					}
 				}
 				else
 				{
 					RelayOnCnt=0;
-					if(RelayOffCnt<RELAY_CONFIRM_CNT)RelayOffCnt++;
-					if(RelayOffCnt>=RELAY_CONFIRM_CNT)
+					
+					if(emergencyTriggered) 
 					{
-						relayMsgOn=0;
-						if(!relayMsgOff)
+						if(emergencyForceRestoreTry!=1)
 						{
-							RELAY_OFF;
-							if(UartDisableTimer) printf("RELAY OFF\n");
-							relayMsgOff=1;
+							emergencyForceRestoreTry=1;
+							if(UartDisableTimer) printf("emergencyForceRestoreTry=%d\n",emergencyForceRestoreTry);
 						}
 					}
+					else
+					{
+						emergencySenseTimer=0;
+						
+						if(RelayOffCnt<RELAY_CONFIRM_OFF_CNT)RelayOffCnt++;
+						if(RelayOffCnt>=RELAY_CONFIRM_OFF_CNT)
+						{
+							relayMsgOn=0;
+							if(!relayMsgOff)
+							{
+								RELAY_OFF;
+								if(UartDisableTimer) printf("RELAY OFF\n");
+								relayMsgOff=1;
+							}
+						}
+					}
+				}
+				
+				last_final_ps = final_ps;
+				test_cnt=0;
+			}
+			else
+			{
+				test_cnt++;
+				if(test_cnt>2)
+				{
+					test_cnt=0;
+					
+					last_final_ps = final_ps;
 				}
 			}
 			
@@ -294,8 +247,7 @@ int main(void)
 			}
 			
 			bool_msec50_flag=0;
-		}
-		
+		}	
 		//---------------------------------------------------------------------------------	
 		if(bool_sec_flag)
 		{
@@ -304,12 +256,93 @@ int main(void)
 				UartDisableTimer--;
 				if(!UartDisableTimer)
 				{
+					printf("UART Disabled\n");
+					
 					//Disable UART
 					USART_Cmd(USART1, DISABLE);
 				}
 			}
 			
+			if(relayMsgOn)
+			{
+				if(!emergencyTriggered)
+				{
+					if(emergencySenseTimer<EMERGENCY_SENSE_SEC)emergencySenseTimer++;
+					if(emergencySenseTimer>=EMERGENCY_SENSE_SEC)
+					{
+						emergencySenseTimer=0;
+						emergencyTriggered=1;
+						emergencyRestoreTimer=EMERGENCY_AUTO_RESTORE_SEC;
+						
+						if(UartDisableTimer) printf("Emergency Triggered\n");
+					}
+				}
+				else
+				{
+					if(emergencyForceRestoreTry==2)
+					{
+						emergencyForceRestoreTryTimer++;
+						if(emergencyForceRestoreTryTimer>EMERGENCY_FORCE_RESTORE_SEC)
+						{
+							emergencyForceRestoreTryTimer=0;
+							
+							emergencyTriggered=0;
+							emergencyForceRestoreTry=0;
+							if(UartDisableTimer) printf("Emergency Force Restored\n");
+							
+							RELAY_OFF;
+							PLATFORM_DelayMS(1000);
+							RELAY_ON;
+						}
+					}
+					else
+					{
+						emergencyForceRestoreTryTimer=0;
+					}
+					
+					if(emergencyRestoreTimer)
+					{
+						emergencyRestoreTimer--;
+						if(!emergencyRestoreTimer)
+						{
+							emergencyTriggered=0;
+							emergencyForceRestoreTry=0;
+							if(UartDisableTimer) printf("Emergency Timeout Restored\n");
+							
+							RELAY_OFF;
+							PLATFORM_DelayMS(1000);
+							RELAY_ON;
+						}
+					}
+				}
+			}
 			
+			if(!CAL_PIN_STAT)
+			{
+				if(CalPressTimer) 
+				{	
+					CalPressTimer--;
+					if(!CalPressTimer)
+					{
+						//Erase Flash Page
+						FLASH_SimulateEEPROM_ErasePage(FLASH_SimulateEEPROM_PAGE_START);
+						
+						gu32_temp=final_ps;
+						threshold=final_ps;
+						
+						//Write Threshold Data
+						FLASH_SimulateEEPROM_ProgramWord(FLASH_SimulateEEPROM_PAGE_START, gu32_temp);
+						
+						//Reply with Acknowledgement message
+						printf("Threshold=%d Saved\n",final_ps);
+					}
+				}
+			}
+			else
+			{
+				CalPressTimer=CALL_PRESS_TIME_SEC;
+			}
+						
 			if(UartDisableTimer) printf("Count=%d\r\n",final_ps);
 			
 			bool_sec_flag=0;

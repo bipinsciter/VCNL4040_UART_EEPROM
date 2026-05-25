@@ -97,7 +97,7 @@ void USART_Configure(uint32_t Baudrate)
 
     RCC_AHBPeriphClockCmd(RCC_AHBPERIPH_GPIOA, ENABLE);
     
-    GPIO_PinAFConfig(GPIOA, GPIO_PinSource13, GPIO_AF_1);
+    //GPIO_PinAFConfig(GPIOA, GPIO_PinSource13, GPIO_AF_1);
     GPIO_PinAFConfig(GPIOA, GPIO_PinSource14, GPIO_AF_1);
 
     GPIO_StructInit(&GPIO_InitStruct);
@@ -106,20 +106,22 @@ void USART_Configure(uint32_t Baudrate)
     GPIO_InitStruct.GPIO_Mode  = GPIO_Mode_AF_PP;
     GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-    GPIO_StructInit(&GPIO_InitStruct);
+    /*
+	GPIO_StructInit(&GPIO_InitStruct);
     GPIO_InitStruct.GPIO_Pin   = GPIO_Pin_13;
     GPIO_InitStruct.GPIO_Speed = GPIO_Speed_High;
     GPIO_InitStruct.GPIO_Mode  = GPIO_Mode_IPU;
     GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-    RCC_APB1PeriphClockCmd(RCC_APB1ENR_USART1, ENABLE);
+	*/
+    
+	RCC_APB1PeriphClockCmd(RCC_APB1ENR_USART1, ENABLE);
 
     USART_StructInit(&USART_InitStruct);
     USART_InitStruct.USART_BaudRate   = Baudrate;
     USART_InitStruct.USART_WordLength = USART_WordLength_8b;
     USART_InitStruct.USART_StopBits   = USART_StopBits_1;
     USART_InitStruct.USART_Parity     = USART_Parity_No;
-    USART_InitStruct.USART_Mode       = USART_Mode_Rx | USART_Mode_Tx;
+    USART_InitStruct.USART_Mode       = /*USART_Mode_Rx |*/ USART_Mode_Tx;
     USART_Init(USART1, &USART_InitStruct);
 
     USART_ITConfig(USART1, USART_IT_PE, ENABLE);
